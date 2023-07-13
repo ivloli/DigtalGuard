@@ -55,6 +55,7 @@ import (
 	"tailscale.com/types/flagtype"
 	"tailscale.com/types/logger"
 	"tailscale.com/types/logid"
+	"tailscale.com/types/preftype"
 	"tailscale.com/util/clientmetric"
 	"tailscale.com/util/multierr"
 	"tailscale.com/util/osshare"
@@ -413,7 +414,7 @@ type MyLocalBackend struct {
 
 func startIPNServer(ctx context.Context, logf logger.Logf, logID logid.PublicID, sys *tsd.System) error {
 	//ln, err := safesocket.Listen(args.socketpath)
-	ln, err := net.Listen("tcp", ":60600")
+	ln, err := net.Listen("tcp", "0.0.0.0:60600")
 	if err != nil {
 		return fmt.Errorf("safesocket.Listen: %v", err)
 	}
@@ -824,7 +825,7 @@ func (b *MyLocalBackend) getIPsHandler(w http.ResponseWriter, r *http.Request) {
 	// 序列化 JSON 响应
 	newResp := &CustomResp{
 		Data: map[string]any{
-			"ips": ips,
+			"node_ips": ips,
 		},
 		Code: 0,
 		Msg:  "ok",
@@ -848,36 +849,66 @@ func (b *MyLocalBackend) login(w http.ResponseWriter, r *http.Request) {
 	o := ipn.Options{
 		AuthKey: "tskey-auth-kRHXEb2CNTRL-CgdxZTYTmue6o8seXzKjueUMwkkCL4hd",
 		UpdatePrefs: &ipn.Prefs{
-			ControlURL:  "https://controlplane.tailscale.com",
-			WantRunning: true,
-			RouteAll:    true,
-			CorpDNS:     false,
-			Hostname:    hname + "ShuZiWeiShi",
+			ControlURL:       "https://controlplane.tailscale.com",
+			WantRunning:      true,
+			RouteAll:         true,
+			CorpDNS:          false,
+			NetfilterMode:    preftype.NetfilterOn,
+			AllowSingleHosts: true,
+			Hostname:         hname + "ShuZiWeiShi",
 			AdvertiseRoutes: []netip.Prefix{
 				netip.MustParsePrefix("172.16.21.252/32"),
+				netip.MustParsePrefix("10.0.0.0/8"),
+				netip.MustParsePrefix("192.168.0.0/24"),
 			},
 		},
 	}
-	initStatus := b.backend.State()
+	startLoginInteractive := b.backend.StartLoginInteractive
+	//initStatus := b.backend.State()
 	err := b.backend.Start(o)
+	if err == nil {
+		ticker := time.NewTicker(2 * time.Second)
+		deadline := time.After(10 * time.Second)
+		defer ticker.Stop()
+		/*
+			if err == nil && initStatus == ipn.NeedsLogin {
+				b.backend.StartLoginInteractive()
+			}
+		*/
+	Loop:
+		for {
+			select {
+			case <-ticker.C:
+				if b.backend.State() == ipn.NeedsLogin {
+					startLoginInteractive()
+					break Loop
+				} else if b.backend.State() == ipn.Running {
+					break Loop
+				}
+			case <-deadline:
+				err = errors.New("Start TimeOut")
+				break Loop
+			}
+		}
+	}
+	// 设置响应头
+	w.Header().Set("Content-Type", "application/json")
+
+	w.WriteHeader(http.StatusOK)
+	prefs := b.backend.Prefs()
+	res := prefs.AsStruct()
 	newResp := &CustomResp{
-		Data: map[string]any{},
+		Data: map[string]any{
+			"prefs": res,
+		},
 		Code: 0,
 		Msg:  "ok",
-	}
-	if err == nil && initStatus == ipn.NeedsLogin {
-		b.backend.StartLoginInteractive()
 	}
 	response, _ := json.Marshal(newResp)
 	if err != nil {
 		newResp.Code = -1
 		newResp.Msg = err.Error()
 	}
-
-	// 设置响应头
-	w.Header().Set("Content-Type", "application/json")
-
-	w.WriteHeader(http.StatusOK)
 	// 发送 JSON 响应
 	w.Write(response)
 }
