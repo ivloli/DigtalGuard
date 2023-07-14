@@ -66,7 +66,7 @@ func init() {
 	}
 }
 
-const serviceName = "Tailscale"
+const serviceName = "DigitalGuardD"
 
 // Application-defined command codes between 128 and 255
 // See https://web.archive.org/web/20221007222822/https://learn.microsoft.com/en-us/windows/win32/api/winsvc/nf-winsvc-controlservice

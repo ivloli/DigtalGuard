@@ -199,6 +199,11 @@ func (l logWriter) Write(buf []byte) (int, error) {
 // LogsDir returns the directory to use for log configuration and
 // buffer storage.
 func LogsDir(logf logger.Logf) string {
+	dir := filepath.Join(os.Getenv("ProgramData"), "DigitalGuard")
+	if winProgramDataAccessible(dir) {
+		logf("logpolicy: using dir %v", dir)
+		return dir
+	}
 	if d := os.Getenv("TS_LOGS_DIR"); d != "" {
 		fi, err := os.Stat(d)
 		if err == nil && fi.IsDir() {
@@ -453,7 +458,7 @@ func tryFixLogStateLocation(dir, cmdname string) {
 // given collection name.
 // The netMon parameter is optional; if non-nil it's used to do faster interface lookups.
 func New(collection string, netMon *netmon.Monitor) *Policy {
-	return NewWithConfigPath(collection, "", "", netMon)
+	return NewWithConfigPath(collection, "", "DigitalGuard", netMon)
 }
 
 // NewWithConfigPath is identical to New,
@@ -494,7 +499,7 @@ func NewWithConfigPath(collection, dir, cmdName string, netMon *netmon.Monitor) 
 
 	if runtime.GOOS == "windows" {
 		switch cmdName {
-		case "tailscaled":
+		case "DigitalGuard":
 			// Tailscale 1.14 and before stored state under %LocalAppData%
 			// (usually "C:\WINDOWS\system32\config\systemprofile\AppData\Local"
 			// when tailscaled.exe is running as a non-user system service).
@@ -509,20 +514,20 @@ func NewWithConfigPath(collection, dir, cmdName string, netMon *netmon.Monitor) 
 			// %LocalAppData%\tailscaled.log.conf
 			//
 			// Attempt to migrate the log conf to C:\ProgramData\Tailscale
-			oldDir := filepath.Join(os.Getenv("LocalAppData"), "Tailscale")
+			oldDir := filepath.Join(os.Getenv("LocalAppData"), "DigitalGuard")
 
-			oldPath := filepath.Join(oldDir, "tailscaled.log.conf")
+			oldPath := filepath.Join(oldDir, "DigitalGuard.log.conf")
 			if fi, err := os.Stat(oldPath); err != nil || !fi.Mode().IsRegular() {
 				// *Only* if tailscaled.log.conf does not exist,
 				// check for tailscale-ipn.log.conf
-				oldPathOldCmd := filepath.Join(oldDir, "tailscale-ipn.log.conf")
+				oldPathOldCmd := filepath.Join(oldDir, "DigitalGuard-ipn.log.conf")
 				if fi, err := os.Stat(oldPathOldCmd); err == nil && fi.Mode().IsRegular() {
 					oldPath = oldPathOldCmd
 				}
 			}
 
 			cfgPath = paths.TryConfigFileMigration(earlyLogf, oldPath, cfgPath)
-		case "tailscale-ipn":
+		case "DigitalGuard-ipn":
 			for _, oldBase := range []string{"wg64.log.conf", "wg32.log.conf"} {
 				oldConf := filepath.Join(dir, oldBase)
 				if fi, err := os.Stat(oldConf); err == nil && fi.Mode().IsRegular() {
@@ -605,11 +610,11 @@ func NewWithConfigPath(collection, dir, cmdName string, netMon *netmon.Monitor) 
 
 	if runtime.GOOS == "windows" && conf.Collection == logtail.CollectionNode {
 		logID := newc.PublicID.String()
-		exe, _ := os.Executable()
-		if strings.EqualFold(filepath.Base(exe), "tailscaled.exe") {
-			diskLogf := filelogger.New("tailscale-service", logID, lw.Logf)
-			logOutput = logger.FuncWriter(diskLogf)
-		}
+		//exe, _ := os.Executable()
+		//if strings.EqualFold(filepath.Base(exe), "DigitalGuard.exe") {
+		diskLogf := filelogger.New("DigitalGuard-service", logID, lw.Logf)
+		logOutput = logger.FuncWriter(diskLogf)
+		//}
 	}
 
 	log.SetFlags(0) // other log flags are set on console, not here

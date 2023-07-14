@@ -14,6 +14,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
@@ -26,9 +27,11 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
+	"gopkg.in/yaml.v2"
 	"tailscale.com/cmd/tailscaled/childproc"
 	"tailscale.com/control/controlclient"
 	"tailscale.com/envknob"
@@ -115,7 +118,7 @@ func defaultPort() uint16 {
 		}
 	}
 	if envknob.GOOS() == "windows" {
-		return 41641
+		return 41652
 	}
 	return 0
 }
@@ -162,6 +165,31 @@ func GetAppDirectory() string {
 	return path[:index]
 }
 
+type Config struct {
+	ControlUrl string `yaml:"controlUrl"`
+	AuthKey    string `yaml:"authKey"`
+	DataDir    string `yaml:"dataDir"`
+}
+
+func readConfig(filename string) (*Config, error) {
+	// 读取文件内容
+	data, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	// 解析 YAML
+	config := &Config{}
+	err = yaml.Unmarshal(data, config)
+	if err != nil {
+		return nil, err
+	}
+
+	return config, nil
+}
+
+var globalConfig *Config
+
 func main() {
 	envknob.PanicIfAnyEnvCheckedInInit()
 	envknob.ApplyDiskConfig()
@@ -185,7 +213,11 @@ func main() {
 		beCLI()
 		return
 	}
-
+	config, err := readConfig(filepath.Join(GetAppDirectory(), "config.yaml"))
+	if err != nil {
+		log.Fatalf("Failed to read config file: %v", err)
+	}
+	globalConfig = config
 	if len(os.Args) > 1 {
 		sub := os.Args[1]
 		if fp, ok := subCommands[sub]; ok {
@@ -235,7 +267,11 @@ func main() {
 	// user may specify only --statedir if they wish.
 	if args.statepath == "" && args.statedir == "" {
 		//args.statepath = paths.DefaultTailscaledStateFile()
-		args.statedir = GetAppDirectory()
+		if globalConfig.DataDir != "" {
+			args.statedir = globalConfig.DataDir
+		} else {
+			args.statedir = GetAppDirectory()
+		}
 		args.statepath = filepath.Join(args.statedir, "ShuZiWeiShi.state")
 	}
 
@@ -248,7 +284,7 @@ func main() {
 		return
 	}
 
-	err := run()
+	err = run()
 
 	// Remove file sharing from Windows shell (noop in non-windows)
 	osshare.SetFileSharingEnabled(false, logger.Discard)
@@ -480,7 +516,7 @@ func startIPNServer(ctx context.Context, logf logger.Logf, logID logid.PublicID,
 
 			// 启动服务
 			go server.ListenAndServe()
-			logf("start Custom API")
+			logf("start Custom API on %s", server.Addr)
 
 			return
 		}
@@ -847,9 +883,9 @@ func (b *MyLocalBackend) getIPsHandler(w http.ResponseWriter, r *http.Request) {
 func (b *MyLocalBackend) login(w http.ResponseWriter, r *http.Request) {
 	hname, _ := os.Hostname()
 	o := ipn.Options{
-		AuthKey: "tskey-auth-kRHXEb2CNTRL-CgdxZTYTmue6o8seXzKjueUMwkkCL4hd",
+		AuthKey: globalConfig.AuthKey,
 		UpdatePrefs: &ipn.Prefs{
-			ControlURL:       "https://controlplane.tailscale.com",
+			ControlURL:       globalConfig.ControlUrl,
 			WantRunning:      true,
 			RouteAll:         true,
 			CorpDNS:          false,
@@ -863,12 +899,13 @@ func (b *MyLocalBackend) login(w http.ResponseWriter, r *http.Request) {
 			},
 		},
 	}
-	startLoginInteractive := b.backend.StartLoginInteractive
+	var loginOnce sync.Once
+	startLoginInteractive := func() { loginOnce.Do(func() { b.backend.StartLoginInteractive() }) }
 	//initStatus := b.backend.State()
 	err := b.backend.Start(o)
 	if err == nil {
 		ticker := time.NewTicker(2 * time.Second)
-		deadline := time.After(10 * time.Second)
+		deadline := time.After(15 * time.Second)
 		defer ticker.Stop()
 		/*
 			if err == nil && initStatus == ipn.NeedsLogin {
@@ -881,7 +918,6 @@ func (b *MyLocalBackend) login(w http.ResponseWriter, r *http.Request) {
 			case <-ticker.C:
 				if b.backend.State() == ipn.NeedsLogin {
 					startLoginInteractive()
-					break Loop
 				} else if b.backend.State() == ipn.Running {
 					break Loop
 				}

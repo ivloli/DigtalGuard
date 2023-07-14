@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/sys/windows"
@@ -43,13 +45,16 @@ func installSystemDaemonWindows(args []string) (err error) {
 	if err != nil {
 		return err
 	}
+	if strings.Contains(exe, "debug") {
+		exe = filepath.Join(GetAppDirectory(), "DigitalGuard.exe")
+	}
 
 	c := mgr.Config{
 		ServiceType:  windows.SERVICE_WIN32_OWN_PROCESS,
 		StartType:    mgr.StartAutomatic,
 		ErrorControl: mgr.ErrorNormal,
 		DisplayName:  serviceName,
-		Description:  "Connects this computer to others on the Tailscale network.",
+		Description:  "Connects this computer to others on the DigitalGuard network.",
 	}
 
 	service, err = m.CreateService(serviceName, exe, c)
@@ -76,7 +81,7 @@ func installSystemDaemonWindows(args []string) (err error) {
 	if err != nil {
 		return fmt.Errorf("failed to set service recovery actions: %v", err)
 	}
-
+	service.Start()
 	return nil
 }
 
