@@ -88,7 +88,7 @@ func (lc *LocalClient) dialer() func(ctx context.Context, network, addr string) 
 }
 
 func (lc *LocalClient) defaultDialer(ctx context.Context, network, addr string) (net.Conn, error) {
-	if addr != "local-tailscaled.sock:80" {
+	if addr != "local-miraged.sock:80" {
 		return nil, fmt.Errorf("unexpected URL address %q", addr)
 	}
 	if !lc.UseSocketOnly {

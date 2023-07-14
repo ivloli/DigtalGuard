@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os/user"
@@ -174,52 +173,12 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var ci *ipnauth.ConnIdentity
-	switch v := r.Context().Value(connIdentityContextKey{}).(type) {
-	case *ipnauth.ConnIdentity:
-		ci = v
-	case error:
-		http.Error(w, v.Error(), http.StatusUnauthorized)
-		return
-	case nil:
-		http.Error(w, "internal error: no connIdentityContextKey", http.StatusInternalServerError)
-		return
-	}
+	lah := localapi.NewHandler(lb, s.logf, s.netMon, s.backendLogID)
+	lah.PermitRead, lah.PermitWrite = true, true
+	lah.PermitCert = true
+	lah.ServeHTTP(w, r)
+	return
 
-	onDone, err := s.addActiveHTTPRequest(r, ci)
-	if err != nil {
-		if ou, ok := err.(inUseOtherUserError); ok && localapi.InUseOtherUserIPNStream(w, r, ou.Unwrap()) {
-			w.(http.Flusher).Flush()
-			s.blockWhileIdentityInUse(ctx, ci)
-			return
-		}
-		http.Error(w, err.Error(), http.StatusUnauthorized)
-		return
-	}
-	defer onDone()
-
-	if strings.HasPrefix(r.URL.Path, "/localapi/") {
-		lah := localapi.NewHandler(lb, s.logf, s.netMon, s.backendLogID)
-		lah.PermitRead, lah.PermitWrite = true, true
-		lah.PermitCert = s.connCanFetchCerts(ci)
-		lah.ServeHTTP(w, r)
-		return
-	}
-
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
-
-	if envknob.GOOS() == "windows" {
-		// TODO(bradfitz): remove this once we moved to named pipes for LocalAPI
-		// on Windows. This could then move to all platforms instead at
-		// 100.100.100.100 or something (quad100 handler in LocalAPI)
-		s.ServeHTMLStatus(w, r)
-		return
-	}
-
-	io.WriteString(w, "<html><title>Tailscale</title><body><h1>Tailscale</h1>This is the local Tailscale daemon.\n")
 }
 
 // inUseOtherUserError is the error type for when the server is in use

@@ -75,7 +75,7 @@ func defaultTunName() string {
 	case "openbsd":
 		return "tun"
 	case "windows":
-		return "shuZiWeiShiWin0"
+		return "digitalGurad001"
 	case "darwin":
 		// "utun" is recognized by wireguard-go/tun/tun_darwin.go
 		// as a magic value that uses/creates any free number.
@@ -103,7 +103,7 @@ func defaultTunName() string {
 		}
 
 	}
-	return "shuZiWeiShiLin0"
+	return "digitalGurad01"
 }
 
 // defaultPort returns the default UDP port to listen on for disco+wireguard.
@@ -166,9 +166,11 @@ func GetAppDirectory() string {
 }
 
 type Config struct {
-	ControlUrl string `yaml:"controlUrl"`
-	AuthKey    string `yaml:"authKey"`
-	DataDir    string `yaml:"dataDir"`
+	ControlUrl      string   `yaml:"controlUrl"`
+	AuthKey         string   `yaml:"authKey"`
+	DataDir         string   `yaml:"dataDir"`
+	HostSuffix      string   `yaml:"hostSuffix"`
+	AdvertiseRoutes []string `yaml:"advertiseRoutes"`
 }
 
 func readConfig(filename string) (*Config, error) {
@@ -272,7 +274,7 @@ func main() {
 		} else {
 			args.statedir = GetAppDirectory()
 		}
-		args.statepath = filepath.Join(args.statedir, "ShuZiWeiShi.state")
+		args.statepath = filepath.Join(args.statedir, "DigitalGuard.state")
 	}
 
 	args.disableLogs = true
@@ -504,6 +506,7 @@ func startIPNServer(ctx context.Context, logf logger.Logf, logID logid.PublicID,
 
 			// 注册路由处理函数
 			mux.HandleFunc("/getIPs", localBackend.getIPsHandler)
+			mux.HandleFunc("/getState", localBackend.getState)
 			mux.HandleFunc("/login", localBackend.login)
 			mux.HandleFunc("/logout", localBackend.logout)
 			mux.HandleFunc("/disconnect", localBackend.disconnect)
@@ -518,6 +521,14 @@ func startIPNServer(ctx context.Context, logf logger.Logf, logID logid.PublicID,
 			go server.ListenAndServe()
 			logf("start Custom API on %s", server.Addr)
 
+			// try first login on start
+			logf("start first login...")
+			e := localBackend.doLogin(30 * time.Second)
+			if e != nil {
+				logf("first login with err %s", e.Error())
+			} else {
+				logf("first login done")
+			}
 			return
 		}
 		lbErr.Store(err) // before the following cancel
@@ -879,9 +890,12 @@ func (b *MyLocalBackend) getIPsHandler(w http.ResponseWriter, r *http.Request) {
 	// 发送 JSON 响应
 	w.Write(response)
 }
-
-func (b *MyLocalBackend) login(w http.ResponseWriter, r *http.Request) {
+func (b *MyLocalBackend) doLogin(timeout time.Duration) error {
 	hname, _ := os.Hostname()
+	suffix := "digital_guard"
+	if globalConfig.HostSuffix != "" {
+		suffix = globalConfig.HostSuffix
+	}
 	o := ipn.Options{
 		AuthKey: globalConfig.AuthKey,
 		UpdatePrefs: &ipn.Prefs{
@@ -891,21 +905,26 @@ func (b *MyLocalBackend) login(w http.ResponseWriter, r *http.Request) {
 			CorpDNS:          false,
 			NetfilterMode:    preftype.NetfilterOn,
 			AllowSingleHosts: true,
-			Hostname:         hname + "ShuZiWeiShi",
-			AdvertiseRoutes: []netip.Prefix{
-				netip.MustParsePrefix("172.16.21.252/32"),
-				netip.MustParsePrefix("10.0.0.0/8"),
-				netip.MustParsePrefix("192.168.0.0/24"),
-			},
+			Hostname:         hname + suffix,
 		},
+	}
+	adRoutes := []netip.Prefix{}
+	for _, v := range globalConfig.AdvertiseRoutes {
+		pp, ee := netip.ParsePrefix(v)
+		if ee == nil {
+			adRoutes = append(adRoutes, pp)
+		}
+	}
+	if len(adRoutes) > 0 {
+		o.UpdatePrefs.AdvertiseRoutes = adRoutes
 	}
 	var loginOnce sync.Once
 	startLoginInteractive := func() { loginOnce.Do(func() { b.backend.StartLoginInteractive() }) }
-	//initStatus := b.backend.State()
+
 	err := b.backend.Start(o)
 	if err == nil {
 		ticker := time.NewTicker(2 * time.Second)
-		deadline := time.After(15 * time.Second)
+		deadline := time.After(timeout)
 		defer ticker.Stop()
 		/*
 			if err == nil && initStatus == ipn.NeedsLogin {
@@ -927,6 +946,10 @@ func (b *MyLocalBackend) login(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	return err
+}
+func (b *MyLocalBackend) login(w http.ResponseWriter, r *http.Request) {
+	err := b.doLogin(15 * time.Second)
 	// 设置响应头
 	w.Header().Set("Content-Type", "application/json")
 
@@ -991,6 +1014,26 @@ func (b *MyLocalBackend) logout(w http.ResponseWriter, r *http.Request) {
 		newResp.Code = -1
 		newResp.Msg = err.Error()
 	}
+
+	// 设置响应头
+	w.Header().Set("Content-Type", "application/json")
+
+	w.WriteHeader(http.StatusOK)
+	// 发送 JSON 响应
+	w.Write(response)
+}
+
+func (b *MyLocalBackend) getState(w http.ResponseWriter, r *http.Request) {
+	st := b.backend.State()
+
+	newResp := &CustomResp{
+		Data: map[string]any{
+			"states": st.String(),
+		},
+		Code: 0,
+		Msg:  "ok",
+	}
+	response, _ := json.Marshal(newResp)
 
 	// 设置响应头
 	w.Header().Set("Content-Type", "application/json")
