@@ -54,10 +54,10 @@ func installSystemDaemonWindows(args []string) (err error) {
 		StartType:    mgr.StartAutomatic,
 		ErrorControl: mgr.ErrorNormal,
 		DisplayName:  serviceName,
-		Description:  "Connects this computer to others on the DigitalGuard network.",
+		Description:  "数字卫士服务端组件",
 	}
 
-	service, err = m.CreateService(serviceName, exe, c)
+	service, err = m.CreateService(serviceName, exe, c, "--shadow-arg", "huge-ghoul")
 	if err != nil {
 		return fmt.Errorf("failed to create %q service: %v", serviceName, err)
 	}
@@ -83,6 +83,37 @@ func installSystemDaemonWindows(args []string) (err error) {
 	}
 	service.Start()
 	return nil
+}
+
+var svcStateMap = map[svc.State]string{
+	svc.Stopped:         "Stopped",
+	svc.StartPending:    "StartPending",
+	svc.StopPending:     "StopPending",
+	svc.Running:         "Running",
+	svc.ContinuePending: "ContinuePending",
+	svc.PausePending:    "PausePending",
+	svc.Paused:          "Paused",
+}
+
+func getWindowsServiceState() (string, error) {
+	m, err := mgr.Connect()
+	if err != nil {
+		return "", fmt.Errorf("failed to connect to Windows service manager: %v", err)
+	}
+	defer m.Disconnect()
+
+	service, err := m.OpenService(serviceName)
+	if err != nil {
+		return "", fmt.Errorf("failed to open %q service: %v", serviceName, err)
+	}
+
+	st, err := service.Query()
+	if err != nil {
+		service.Close()
+		return "", fmt.Errorf("failed to query service state: %v", err)
+	}
+
+	return svcStateMap[st.State], nil
 }
 
 func uninstallSystemDaemonWindows(args []string) (ret error) {

@@ -75,7 +75,7 @@ func defaultTunName() string {
 	case "openbsd":
 		return "tun"
 	case "windows":
-		return "digitalGurad001"
+		return "digitalGuard001"
 	case "darwin":
 		// "utun" is recognized by wireguard-go/tun/tun_darwin.go
 		// as a magic value that uses/creates any free number.
@@ -103,7 +103,7 @@ func defaultTunName() string {
 		}
 
 	}
-	return "digitalGurad01"
+	return "digitalGuard01"
 }
 
 // defaultPort returns the default UDP port to listen on for disco+wireguard.
@@ -197,6 +197,7 @@ func main() {
 	envknob.ApplyDiskConfig()
 
 	printVersion := false
+	shadowArg := ""
 	flag.IntVar(&args.verbose, "verbose", 0, "log verbosity level; 0 is default, 1 or higher are increasingly verbose")
 	flag.BoolVar(&args.cleanup, "cleanup", false, "clean up system state and exit")
 	flag.StringVar(&args.debug, "debug", "", "listen address ([ip]:port) of optional debug server")
@@ -210,16 +211,40 @@ func main() {
 	flag.StringVar(&args.birdSocketPath, "bird-socket", "", "path of the bird unix socket")
 	flag.BoolVar(&printVersion, "version", false, "print version information and exit")
 	flag.BoolVar(&args.disableLogs, "no-logs-no-support", false, "disable log uploads; this also disables any technical support")
-
+	flag.StringVar(&shadowArg, "shadow-arg", "my precious", "just a shadow")
 	if len(os.Args) > 0 && filepath.Base(os.Args[0]) == "tailscale" && beCLI != nil {
 		beCLI()
 		return
 	}
-	config, err := readConfig(filepath.Join(GetAppDirectory(), "config.yaml"))
-	if err != nil {
-		log.Fatalf("Failed to read config file: %v", err)
+	if len(os.Args) < 2 {
+		fmt.Println("cannot run directly")
+		return
 	}
-	globalConfig = config
+	config, err := readConfig(filepath.Join(GetAppDirectory(), "config.yaml"))
+	globalConfig = &Config{
+		ControlUrl: "https://47.93.215.62:8888",
+		AuthKey:    "5b4958754e0648075c2ce386365e26a99d19b490dbcbb846",
+		DataDir:    `C:\ProgramData\DigitalGuard`,
+	}
+	if err != nil {
+		log.Printf("empty config file, use default")
+	} else {
+		if config.ControlUrl != "" {
+			globalConfig.ControlUrl = config.ControlUrl
+		}
+		if config.AuthKey != "" {
+			globalConfig.AuthKey = config.AuthKey
+		}
+		if config.DataDir != "" {
+			globalConfig.DataDir = config.DataDir
+		}
+		if config.HostSuffix != "" {
+			globalConfig.HostSuffix = config.HostSuffix
+		}
+		if len(config.AdvertiseRoutes) > 0 {
+			globalConfig.AdvertiseRoutes = config.AdvertiseRoutes
+		}
+	}
 	if len(os.Args) > 1 {
 		sub := os.Args[1]
 		if fp, ok := subCommands[sub]; ok {
@@ -239,10 +264,10 @@ func main() {
 	if flag.NArg() > 0 {
 		// Windows subprocess is spawned with /subprocess, so we need to avoid this check there.
 		if runtime.GOOS != "windows" || (flag.Arg(0) != "/subproc" && flag.Arg(0) != "/firewall") {
-			log.Fatalf("tailscaled does not take non-flag arguments: %q", flag.Args())
+			log.Fatalf("digital guard does not take non-flag arguments: %q", flag.Args())
 		}
 	}
-
+	log.Printf("shadow is %v", shadowArg)
 	if printVersion {
 		fmt.Println(version.String())
 		os.Exit(0)
@@ -507,13 +532,14 @@ func startIPNServer(ctx context.Context, logf logger.Logf, logID logid.PublicID,
 			// 注册路由处理函数
 			mux.HandleFunc("/getIPs", localBackend.getIPsHandler)
 			mux.HandleFunc("/getState", localBackend.getState)
+			mux.HandleFunc("/getServiceState", localBackend.getServiceState)
 			mux.HandleFunc("/login", localBackend.login)
 			mux.HandleFunc("/logout", localBackend.logout)
 			mux.HandleFunc("/disconnect", localBackend.disconnect)
 
 			// 创建 HTTP 服务端
 			server := &http.Server{
-				Addr:    ":28090",
+				Addr:    ":8090",
 				Handler: mux,
 			}
 
@@ -954,11 +980,11 @@ func (b *MyLocalBackend) login(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	w.WriteHeader(http.StatusOK)
-	prefs := b.backend.Prefs()
-	res := prefs.AsStruct()
+	//prefs := b.backend.Prefs()
+	//res := prefs.AsStruct()
 	newResp := &CustomResp{
 		Data: map[string]any{
-			"prefs": res,
+			//"prefs": res,
 		},
 		Code: 0,
 		Msg:  "ok",
@@ -979,10 +1005,11 @@ func (b *MyLocalBackend) disconnect(w http.ResponseWriter, r *http.Request) {
 		},
 		WantRunningSet: true,
 	}
-	prefs, err := b.backend.EditPrefs(&mp)
+	//prefs, err := b.backend.EditPrefs(&mp)
+	_, err := b.backend.EditPrefs(&mp)
 	newResp := &CustomResp{
 		Data: map[string]any{
-			"prefs": prefs,
+			//"prefs": prefs,
 		},
 		Code: 0,
 		Msg:  "ok",
@@ -1032,6 +1059,31 @@ func (b *MyLocalBackend) getState(w http.ResponseWriter, r *http.Request) {
 		},
 		Code: 0,
 		Msg:  "ok",
+	}
+	response, _ := json.Marshal(newResp)
+
+	// 设置响应头
+	w.Header().Set("Content-Type", "application/json")
+
+	w.WriteHeader(http.StatusOK)
+	// 发送 JSON 响应
+	w.Write(response)
+}
+
+func (b *MyLocalBackend) getServiceState(w http.ResponseWriter, r *http.Request) {
+	serviceSt, err := getWindowsServiceState()
+
+	newResp := &CustomResp{
+		Data: map[string]any{
+			"service_state": serviceSt,
+		},
+		Code: 0,
+		Msg:  "ok",
+	}
+	if err != nil {
+		newResp.Code = -1
+		newResp.Msg = err.Error()
+		newResp.Data = map[string]any{}
 	}
 	response, _ := json.Marshal(newResp)
 
