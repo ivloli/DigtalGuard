@@ -21,7 +21,7 @@ func init() {
 }
 
 // darwinLaunchdPlist is the launchd.plist that's written to
-// /Library/LaunchDaemons/com.tailscale.tailscaled.plist or (in the
+// /Library/LaunchDaemons/com.DigitalGuard.DigitalGuardD.plist or (in the
 // future) a user-specific location.
 //
 // See man launchd.plist.
@@ -32,11 +32,11 @@ const darwinLaunchdPlist = `
 <dict>
 
   <key>Label</key>
-  <string>com.tailscale.tailscaled</string>
+  <string>com.DigitalGuard.DigitalGuardD</string>
 
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/local/bin/tailscaled</string>
+    <string>/usr/local/bin/DigitalGuardD</string>
   </array>
 
   <key>RunAtLoad</key>
@@ -46,23 +46,23 @@ const darwinLaunchdPlist = `
 </plist>
 `
 
-const sysPlist = "/Library/LaunchDaemons/com.tailscale.tailscaled.plist"
-const targetBin = "/usr/local/bin/tailscaled"
-const service = "com.tailscale.tailscaled"
+const sysPlist = "/Library/LaunchDaemons/com.DigitalGuard.DigitalGuardD.plist"
+const targetBin = "/usr/local/bin/DigitalGuardD"
+const service = "com.DigitalGuard.DigitalGuardD"
 
 func uninstallSystemDaemonDarwin(args []string) (ret error) {
 	if len(args) > 0 {
 		return errors.New("uninstall subcommand takes no arguments")
 	}
 
-	plist, err := exec.Command("launchctl", "list", "com.tailscale.tailscaled").Output()
+	plist, err := exec.Command("launchctl", "list", "com.DigitalGuard.DigitalGuardD").Output()
 	_ = plist // parse it? https://github.com/DHowett/go-plist if we need something.
 	running := err == nil
 
 	if running {
-		out, err := exec.Command("launchctl", "stop", "com.tailscale.tailscaled").CombinedOutput()
+		out, err := exec.Command("launchctl", "stop", "com.DigitalGuard.DigitalGuardD").CombinedOutput()
 		if err != nil {
-			fmt.Printf("launchctl stop com.tailscale.tailscaled: %v, %s\n", err, out)
+			fmt.Printf("launchctl stop com.DigitalGuard.DigitalGuardD: %v, %s\n", err, out)
 			ret = err
 		}
 		out, err = exec.Command("launchctl", "unload", sysPlist).CombinedOutput()
@@ -106,7 +106,7 @@ func installSystemDaemonDarwin(args []string) (err error) {
 	}
 	defer func() {
 		if err != nil && os.Getuid() != 0 {
-			err = fmt.Errorf("%w; try running tailscaled with sudo", err)
+			err = fmt.Errorf("%w; try running DigitalGuardD with sudo", err)
 		}
 	}()
 
@@ -125,7 +125,7 @@ func installSystemDaemonDarwin(args []string) (err error) {
 
 	// Do not overwrite targetBin with the binary file if it it's already
 	// pointing to it. This is primarily to handle Homebrew that writes
-	// /usr/local/bin/tailscaled is a symlink to the actual binary.
+	// /usr/local/bin/DigitalGuardD is a symlink to the actual binary.
 	if !same {
 		if err := copyBinary(exe, targetBin); err != nil {
 			return err

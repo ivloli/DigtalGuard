@@ -61,6 +61,12 @@ var getLogTargetOnce struct {
 	v string // URL of logs server, or empty for default
 }
 
+var ConfLogPath string
+
+func SetConfLogPath(p string) {
+	ConfLogPath = filepath.Join(p, "log")
+}
+
 func getLogTarget() string {
 	getLogTargetOnce.Do(func() {
 		if val, ok := os.LookupEnv("TS_LOG_TARGET"); ok {
@@ -199,16 +205,13 @@ func (l logWriter) Write(buf []byte) (int, error) {
 // LogsDir returns the directory to use for log configuration and
 // buffer storage.
 func LogsDir(logf logger.Logf) string {
-	dir := filepath.Join(os.Getenv("ProgramData"), "DigitalGuard")
-	if winProgramDataAccessible(dir) {
-		logf("logpolicy: using dir %v", dir)
-		return dir
-	}
 	if d := os.Getenv("TS_LOGS_DIR"); d != "" {
 		fi, err := os.Stat(d)
 		if err == nil && fi.IsDir() {
 			return d
 		}
+	} else {
+		return ConfLogPath
 	}
 
 	switch runtime.GOOS {
@@ -580,7 +583,8 @@ func NewWithConfigPath(collection, dir, cmdName string, netMon *netmon.Monitor) 
 	}
 
 	filchOptions := filch.Options{
-		ReplaceStderr: redirectStderrToLogPanics(),
+		//ReplaceStderr: redirectStderrToLogPanics(),
+		ReplaceStderr: true,
 	}
 	filchPrefix := filepath.Join(dir, cmdName)
 

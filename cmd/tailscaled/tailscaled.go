@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -198,6 +199,7 @@ func main() {
 
 	printVersion := false
 	shadowArg := ""
+	realUserName := ""
 	flag.IntVar(&args.verbose, "verbose", 0, "log verbosity level; 0 is default, 1 or higher are increasingly verbose")
 	flag.BoolVar(&args.cleanup, "cleanup", false, "clean up system state and exit")
 	flag.StringVar(&args.debug, "debug", "", "listen address ([ip]:port) of optional debug server")
@@ -212,6 +214,7 @@ func main() {
 	flag.BoolVar(&printVersion, "version", false, "print version information and exit")
 	flag.BoolVar(&args.disableLogs, "no-logs-no-support", false, "disable log uploads; this also disables any technical support")
 	flag.StringVar(&shadowArg, "shadow-arg", "my precious", "just a shadow")
+	flag.StringVar(&realUserName, "uname", "", "the user who start the commad")
 	if len(os.Args) > 0 && filepath.Base(os.Args[0]) == "tailscale" && beCLI != nil {
 		beCLI()
 		return
@@ -224,7 +227,7 @@ func main() {
 	globalConfig = &Config{
 		ControlUrl: "https://47.93.215.62:8888",
 		AuthKey:    "5b4958754e0648075c2ce386365e26a99d19b490dbcbb846",
-		DataDir:    `C:\ProgramData\DigitalGuard`,
+		DataDir:    `DigitalGuard`,
 	}
 	if err != nil {
 		log.Printf("empty config file, use default")
@@ -245,6 +248,7 @@ func main() {
 			globalConfig.AdvertiseRoutes = config.AdvertiseRoutes
 		}
 	}
+
 	if len(os.Args) > 1 {
 		sub := os.Args[1]
 		if fp, ok := subCommands[sub]; ok {
@@ -272,7 +276,17 @@ func main() {
 		fmt.Println(version.String())
 		os.Exit(0)
 	}
-
+	var currentUser *user.User
+	if realUserName == "" {
+		currentUser, _ = user.Current()
+	} else {
+		currentUser, _ = user.Lookup(realUserName)
+	}
+	if currentUser == nil {
+		log.Fatal("can not get current user info")
+	}
+	globalConfig.DataDir = filepath.Join(currentUser.HomeDir, globalConfig.DataDir)
+	logpolicy.SetConfLogPath(globalConfig.DataDir)
 	if runtime.GOOS == "darwin" && os.Getuid() != 0 && !strings.Contains(args.tunname, "userspace-networking") && !args.cleanup {
 		log.SetFlags(0)
 		log.Fatalf("tailscaled requires root; use sudo tailscaled (or use --tun=userspace-networking)")
@@ -301,6 +315,8 @@ func main() {
 		}
 		args.statepath = filepath.Join(args.statedir, "DigitalGuard.state")
 	}
+	log.Println(args)
+	log.Println(globalConfig)
 
 	args.disableLogs = true
 	if args.disableLogs {
@@ -532,7 +548,6 @@ func startIPNServer(ctx context.Context, logf logger.Logf, logID logid.PublicID,
 			// 注册路由处理函数
 			mux.HandleFunc("/getIPs", localBackend.getIPsHandler)
 			mux.HandleFunc("/getState", localBackend.getState)
-			mux.HandleFunc("/getServiceState", localBackend.getServiceState)
 			mux.HandleFunc("/login", localBackend.login)
 			mux.HandleFunc("/logout", localBackend.logout)
 			mux.HandleFunc("/disconnect", localBackend.disconnect)
@@ -1059,31 +1074,6 @@ func (b *MyLocalBackend) getState(w http.ResponseWriter, r *http.Request) {
 		},
 		Code: 0,
 		Msg:  "ok",
-	}
-	response, _ := json.Marshal(newResp)
-
-	// 设置响应头
-	w.Header().Set("Content-Type", "application/json")
-
-	w.WriteHeader(http.StatusOK)
-	// 发送 JSON 响应
-	w.Write(response)
-}
-
-func (b *MyLocalBackend) getServiceState(w http.ResponseWriter, r *http.Request) {
-	serviceSt, err := getWindowsServiceState()
-
-	newResp := &CustomResp{
-		Data: map[string]any{
-			"service_state": serviceSt,
-		},
-		Code: 0,
-		Msg:  "ok",
-	}
-	if err != nil {
-		newResp.Code = -1
-		newResp.Msg = err.Error()
-		newResp.Data = map[string]any{}
 	}
 	response, _ := json.Marshal(newResp)
 
