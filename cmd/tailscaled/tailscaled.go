@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"net/netip"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -191,6 +192,7 @@ func readConfig(filename string) (*Config, error) {
 }
 
 var globalConfig *Config
+var loginErr error = errors.New("Not login yet")
 
 func main() {
 	envknob.PanicIfAnyEnvCheckedInInit()
@@ -885,6 +887,21 @@ type CustomResp struct {
 }
 
 func (b *MyLocalBackend) getIPsHandler(w http.ResponseWriter, r *http.Request) {
+	if loginErr != nil {
+		// 设置响应头
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		// 序列化 JSON 响应
+		newResp := &CustomResp{
+			Data: map[string]any{},
+			Code: -1,
+			Msg:  loginErr.Error(),
+		}
+		response, _ := json.Marshal(newResp)
+		// 序列化 JSON 响应
+		w.Write(response)
+		return
+	}
 	ips := []string{}
 	if b != nil && b.backend != nil {
 		st := b.backend.StatusWithoutPeers()
@@ -917,6 +934,10 @@ func (b *MyLocalBackend) getIPsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(response)
 }
 func (b *MyLocalBackend) doLogin(timeout time.Duration) error {
+	cerr := checkNslookup(globalConfig.ControlUrl)
+	if cerr != nil {
+		loginErr = cerr
+	}
 	hname, _ := os.Hostname()
 	suffix := "digital_guard"
 	if globalConfig.HostSuffix != "" {
@@ -972,6 +993,7 @@ func (b *MyLocalBackend) doLogin(timeout time.Duration) error {
 			}
 		}
 	}
+	loginErr = err
 	return err
 }
 func (b *MyLocalBackend) login(w http.ResponseWriter, r *http.Request) {
@@ -1093,4 +1115,20 @@ func (b *MyLocalBackend) getServiceState(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusOK)
 	// 发送 JSON 响应
 	w.Write(response)
+}
+
+func checkNslookup(domain string) error {
+	parsedURL, err := url.Parse(domain)
+	if err != nil {
+		return err
+	}
+	host := parsedURL.Hostname()
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return err
+	}
+	if len(ips) == 0 {
+		return errors.New("dns resolv failed")
+	}
+	return nil
 }
