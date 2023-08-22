@@ -11,7 +11,7 @@ user="$(whoami)"
 sudoline="$user ALL=(ALL) NOPASSWD: $command"
 
 if grep -qe "^$sudoline$" "/private/etc/sudoers.d/sudoers_tmp";then
-    sudo ./core -uname $(whoami)
+    sudo ./DigitalGuardD -uname $(whoami)
     exit 0
 fi
 
