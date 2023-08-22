@@ -1,3 +1,4 @@
 controlUrl: https://controlplane.tailscale.com
 authKey: tskey-auth-kRHXEb2CNTRL-CgdxZTYTmue6o8seXzKjueUMwkkCL4hd
 dataDir: DigitalGuardState
+autoConnect: false
