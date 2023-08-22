@@ -171,6 +171,7 @@ type Config struct {
 	AuthKey         string   `yaml:"authKey"`
 	DataDir         string   `yaml:"dataDir"`
 	HostSuffix      string   `yaml:"hostSuffix"`
+	AutoConnect     bool     `yaml:"autoConnect"`
 	AdvertiseRoutes []string `yaml:"advertiseRoutes"`
 }
 
@@ -192,7 +193,16 @@ func readConfig(filename string) (*Config, error) {
 }
 
 var globalConfig *Config
-var loginErr error = errors.New("Not login yet")
+
+type loginErrWarpper struct {
+	Code int
+	Err  error
+}
+
+var loginErr loginErrWarpper = loginErrWarpper{
+	Code: 100,
+	Err:  errors.New("Not login yet"),
+}
 
 func main() {
 	envknob.PanicIfAnyEnvCheckedInInit()
@@ -246,6 +256,7 @@ func main() {
 		if len(config.AdvertiseRoutes) > 0 {
 			globalConfig.AdvertiseRoutes = config.AdvertiseRoutes
 		}
+		globalConfig.AutoConnect = config.AutoConnect
 	}
 	if len(os.Args) > 1 {
 		sub := os.Args[1]
@@ -550,12 +561,16 @@ func startIPNServer(ctx context.Context, logf logger.Logf, logID logid.PublicID,
 			logf("start Custom API on %s", server.Addr)
 
 			// try first login on start
-			logf("start first login...")
-			e := localBackend.doLogin(30 * time.Second)
-			if e != nil {
-				logf("first login with err %s", e.Error())
+			if globalConfig.AutoConnect {
+				logf("start first login...")
+				e := localBackend.doLogin(30 * time.Second)
+				if e != nil {
+					logf("first login with err %s", e.Error())
+				} else {
+					logf("first login done")
+				}
 			} else {
-				logf("first login done")
+				logf("SKIP_AUTO_LOGIN")
 			}
 			return
 		}
@@ -887,15 +902,15 @@ type CustomResp struct {
 }
 
 func (b *MyLocalBackend) getIPsHandler(w http.ResponseWriter, r *http.Request) {
-	if loginErr != nil {
+	if loginErr.Code != 0 {
 		// 设置响应头
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
+		w.WriteHeader(http.StatusOK)
 		// 序列化 JSON 响应
 		newResp := &CustomResp{
 			Data: map[string]any{},
-			Code: -1,
-			Msg:  loginErr.Error(),
+			Code: int64(loginErr.Code),
+			Msg:  loginErr.Err.Error(),
 		}
 		response, _ := json.Marshal(newResp)
 		// 序列化 JSON 响应
@@ -936,7 +951,10 @@ func (b *MyLocalBackend) getIPsHandler(w http.ResponseWriter, r *http.Request) {
 func (b *MyLocalBackend) doLogin(timeout time.Duration) error {
 	cerr := checkNslookup(globalConfig.ControlUrl)
 	if cerr != nil {
-		loginErr = cerr
+		loginErr = loginErrWarpper{
+			Code: 101,
+			Err:  cerr,
+		}
 	}
 	hname, _ := os.Hostname()
 	suffix := "digital_guard"
@@ -993,7 +1011,17 @@ func (b *MyLocalBackend) doLogin(timeout time.Duration) error {
 			}
 		}
 	}
-	loginErr = err
+	if err != nil {
+		loginErr = loginErrWarpper{
+			Code: 102,
+			Err:  err,
+		}
+	} else {
+		loginErr = loginErrWarpper{
+			Code: 0,
+			Err:  nil,
+		}
+	}
 	return err
 }
 func (b *MyLocalBackend) login(w http.ResponseWriter, r *http.Request) {
