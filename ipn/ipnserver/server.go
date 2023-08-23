@@ -408,6 +408,7 @@ func (s *Server) SetLocalBackend(lb *ipnlocal.LocalBackend) {
 }
 
 func (b *Server) startBackendIfNeeded() {
+	return
 	if !b.runCalled.Load() {
 		return
 	}

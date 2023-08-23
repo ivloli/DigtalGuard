@@ -1071,25 +1071,37 @@ func (b *MyLocalBackend) login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *MyLocalBackend) disconnect(w http.ResponseWriter, r *http.Request) {
-	mp := ipn.MaskedPrefs{
-		Prefs: ipn.Prefs{
-			WantRunning: false,
-		},
-		WantRunningSet: true,
-	}
-	//prefs, err := b.backend.EditPrefs(&mp)
-	_, err := b.backend.EditPrefs(&mp)
-	newResp := &CustomResp{
-		Data: map[string]any{
-			//"prefs": prefs,
-		},
-		Code: 0,
-		Msg:  "ok",
-	}
-	response, _ := json.Marshal(newResp)
-	if err != nil {
-		newResp.Code = -1
-		newResp.Msg = err.Error()
+	var response []byte
+	if b.backend.State() != ipn.Running {
+		newResp := &CustomResp{
+			Data: map[string]any{
+				//"prefs": prefs,
+			},
+			Code: 100,
+			Msg:  "Not login yet",
+		}
+		response, _ = json.Marshal(newResp)
+	} else {
+		mp := ipn.MaskedPrefs{
+			Prefs: ipn.Prefs{
+				WantRunning: false,
+			},
+			WantRunningSet: true,
+		}
+		//prefs, err := b.backend.EditPrefs(&mp)
+		_, err := b.backend.EditPrefs(&mp)
+		newResp := &CustomResp{
+			Data: map[string]any{
+				//"prefs": prefs,
+			},
+			Code: 0,
+			Msg:  "ok",
+		}
+		response, _ = json.Marshal(newResp)
+		if err != nil {
+			newResp.Code = -1
+			newResp.Msg = err.Error()
+		}
 	}
 
 	// 设置响应头
@@ -1101,17 +1113,29 @@ func (b *MyLocalBackend) disconnect(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *MyLocalBackend) logout(w http.ResponseWriter, r *http.Request) {
-	err := b.backend.LogoutSync(context.Background())
+	var response []byte
+	if b.backend.State() != ipn.Running {
+		newResp := &CustomResp{
+			Data: map[string]any{
+				//"prefs": prefs,
+			},
+			Code: 100,
+			Msg:  "Not login yet",
+		}
+		response, _ = json.Marshal(newResp)
+	} else {
+		err := b.backend.LogoutSync(context.Background())
 
-	newResp := &CustomResp{
-		Data: map[string]any{},
-		Code: 0,
-		Msg:  "ok",
-	}
-	response, _ := json.Marshal(newResp)
-	if err != nil {
-		newResp.Code = -1
-		newResp.Msg = err.Error()
+		newResp := &CustomResp{
+			Data: map[string]any{},
+			Code: 0,
+			Msg:  "ok",
+		}
+		response, _ = json.Marshal(newResp)
+		if err != nil {
+			newResp.Code = -1
+			newResp.Msg = err.Error()
+		}
 	}
 
 	// 设置响应头
