@@ -917,6 +917,13 @@ type CustomResp struct {
 }
 
 func (b *MyLocalBackend) getIPsHandler(w http.ResponseWriter, r *http.Request) {
+	st := b.backend.State()
+	if st == ipn.Running {
+		loginErr = loginErrWarpper{
+			Code: 0,
+			Err:  nil,
+		}
+	}
 	if loginErr.Code != 0 {
 		// 设置响应头
 		w.Header().Set("Content-Type", "application/json")
