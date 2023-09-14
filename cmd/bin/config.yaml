@@ -1,4 +1,4 @@
-controlUrl: https://controlplane.tailscale.com
-authKey: tskey-auth-kRHXEb2CNTRL-CgdxZTYTmue6o8seXzKjueUMwkkCL4hd
-dataDir: DigitalGuardState
+controlUrl: https://yf.matesec.cn:8888
+authKey: 5b4958754e0648075c2ce386365e26a99d19b490dbcbb846
+dataDir: C:\ProgramData\DigitalGuard
 autoConnect: false
