@@ -162,11 +162,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "server has no local backend", http.StatusInternalServerError)
 		return
 	}
-	if r.Referer() != "" || r.Header.Get("Origin") != "" || !h.validHost(r.Host) {
-		metricInvalidRequests.Add(1)
-		http.Error(w, "invalid localapi request", http.StatusForbidden)
-		return
-	}
+	/*
+		if r.Referer() != "" || r.Header.Get("Origin") != "" || !h.validHost(r.Host) {
+			metricInvalidRequests.Add(1)
+			http.Error(w, "invalid localapi request", http.StatusForbidden)
+			return
+		}
+	*/
 	w.Header().Set("Tailscale-Version", version.Long())
 	w.Header().Set("Tailscale-Cap", strconv.Itoa(int(tailcfg.CurrentCapabilityVersion)))
 	w.Header().Set("Content-Security-Policy", `default-src 'none'; frame-ancestors 'none'; script-src 'none'; script-src-elem 'none'; script-src-attr 'none'`)

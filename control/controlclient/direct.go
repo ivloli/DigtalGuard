@@ -1010,7 +1010,8 @@ func (c *Direct) sendMapRequest(ctx context.Context, maxPolls int, readOnly bool
 			vlogf("netmap: decode error: %v")
 			return err
 		}
-
+		jsBts, _ := json.Marshal(resp)
+		c.logf("GETGET: %s", jsBts)
 		metricMapResponseMessages.Add(1)
 
 		if allowStream {
