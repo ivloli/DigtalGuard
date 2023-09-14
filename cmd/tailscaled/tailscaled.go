@@ -564,6 +564,7 @@ func startIPNServer(ctx context.Context, logf logger.Logf, logID logid.PublicID,
 			mux.HandleFunc("/login", localBackend.login)
 			mux.HandleFunc("/logout", localBackend.logout)
 			mux.HandleFunc("/disconnect", localBackend.disconnect)
+			mux.HandleFunc("/configRouteAll", localBackend.configRouteAll)
 
 			// 创建 HTTP 服务端
 			server := &http.Server{
@@ -1158,6 +1159,52 @@ func (b *MyLocalBackend) getState(w http.ResponseWriter, r *http.Request) {
 	}
 	response, _ := json.Marshal(newResp)
 
+	// 设置响应头
+	w.Header().Set("Content-Type", "application/json")
+
+	w.WriteHeader(http.StatusOK)
+	// 发送 JSON 响应
+	w.Write(response)
+}
+
+func (b *MyLocalBackend) configRouteAll(w http.ResponseWriter, r *http.Request) {
+	enable := r.URL.Query().Get("enable")
+	var routeAll bool
+	if enable == "-1" {
+		routeAll = false
+	} else {
+		routeAll = true
+	}
+	newResp := &CustomResp{
+		Data: map[string]any{},
+		Code: 0,
+		Msg:  "ok",
+	}
+	prefs := b.backend.Prefs()
+	if prefs.RouteAll() == routeAll {
+		newResp.Data["prefs.routeAll"] = prefs.RouteAll()
+		newResp.Msg = "No change set"
+		newResp.Code = 0
+	} else {
+		mp := ipn.MaskedPrefs{
+			Prefs: ipn.Prefs{
+				RouteAll: routeAll,
+			},
+			RouteAllSet: true,
+		}
+		newPrefs, err := b.backend.EditPrefs(&mp)
+		if err != nil {
+			newResp.Code = -1
+			newResp.Data["prefs.routeAll"] = prefs.RouteAll()
+			newResp.Msg = err.Error()
+		} else {
+			newResp.Code = 0
+			newResp.Data["prefs.routeAll"] = newPrefs.RouteAll()
+			newResp.Msg = "ok"
+		}
+	}
+
+	response, _ := json.Marshal(newResp)
 	// 设置响应头
 	w.Header().Set("Content-Type", "application/json")
 
