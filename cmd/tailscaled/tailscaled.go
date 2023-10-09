@@ -1089,27 +1089,40 @@ func (b *MyLocalBackend) login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *MyLocalBackend) disconnect(w http.ResponseWriter, r *http.Request) {
-	mp := ipn.MaskedPrefs{
-		Prefs: ipn.Prefs{
-			WantRunning: false,
-		},
-		WantRunningSet: true,
+	var response []byte
+	if b.backend.State() != ipn.Running {
+		newResp := &CustomResp{
+			Data: map[string]any{
+				//"prefs": prefs,
+			},
+			Code: 100,
+			Msg:  "Not login yet",
+		}
+		response, _ = json.Marshal(newResp)
+		b.logf("不处于运行状态\n")
+	} else {
+		mp := ipn.MaskedPrefs{
+			Prefs: ipn.Prefs{
+				WantRunning: false,
+			},
+			WantRunningSet: true,
+		}
+		//prefs, err := b.backend.EditPrefs(&mp)
+		_, err := b.backend.EditPrefs(&mp)
+		newResp := &CustomResp{
+			Data: map[string]any{
+				//"prefs": prefs,
+			},
+			Code: 0,
+			Msg:  "ok",
+		}
+		response, _ = json.Marshal(newResp)
+		if err != nil {
+			newResp.Code = -1
+			newResp.Msg = err.Error()
+		}
+		b.logf("断开连接:%s\n", err)
 	}
-	//prefs, err := b.backend.EditPrefs(&mp)
-	_, err := b.backend.EditPrefs(&mp)
-	newResp := &CustomResp{
-		Data: map[string]any{
-			//"prefs": prefs,
-		},
-		Code: 0,
-		Msg:  "ok",
-	}
-	response, _ := json.Marshal(newResp)
-	if err != nil {
-		newResp.Code = -1
-		newResp.Msg = err.Error()
-	}
-	b.logf("断开连接:%s\n", err)
 
 	// 设置响应头
 	w.Header().Set("Content-Type", "application/json")
