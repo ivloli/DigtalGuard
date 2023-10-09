@@ -1121,6 +1121,7 @@ func (b *MyLocalBackend) disconnect(w http.ResponseWriter, r *http.Request) {
 			Msg:  "Not login yet",
 		}
 		response, _ = json.Marshal(newResp)
+		b.logf("不处于运行状态\n")
 	} else {
 		mp := ipn.MaskedPrefs{
 			Prefs: ipn.Prefs{
@@ -1142,8 +1143,8 @@ func (b *MyLocalBackend) disconnect(w http.ResponseWriter, r *http.Request) {
 			newResp.Code = -1
 			newResp.Msg = err.Error()
 		}
+		b.logf("断开连接:%s\n", err)
 	}
-	b.logf("断开连接:%s\n", err)
 
 	// 设置响应头
 	w.Header().Set("Content-Type", "application/json")
