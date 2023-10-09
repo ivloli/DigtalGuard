@@ -33,6 +33,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/shirou/gopsutil/v3/process"
 	"gopkg.in/yaml.v2"
 	"tailscale.com/cmd/tailscaled/childproc"
 	"tailscale.com/control/controlclient"
@@ -168,12 +169,13 @@ func GetAppDirectory() string {
 }
 
 type Config struct {
-	ControlUrl      string   `yaml:"controlUrl"`
-	AuthKey         string   `yaml:"authKey"`
-	DataDir         string   `yaml:"dataDir"`
-	HostSuffix      string   `yaml:"hostSuffix"`
-	AutoConnect     bool     `yaml:"autoConnect"`
-	AdvertiseRoutes []string `yaml:"advertiseRoutes"`
+	ControlUrl       string   `yaml:"controlUrl"`
+	AuthKey          string   `yaml:"authKey"`
+	DataDir          string   `yaml:"dataDir"`
+	HostSuffix       string   `yaml:"hostSuffix"`
+	AutoConnect      bool     `yaml:"autoConnect"`
+	AdvertiseRoutes  []string `yaml:"advertiseRoutes"`
+	ProcessExistence string   `yaml:"processExistence"`
 }
 
 func readConfig(filename string) (*Config, error) {
@@ -260,6 +262,7 @@ func main() {
 			globalConfig.AdvertiseRoutes = config.AdvertiseRoutes
 		}
 		globalConfig.AutoConnect = config.AutoConnect
+		globalConfig.ProcessExistence = config.ProcessExistence
 	}
 
 	if len(os.Args) > 1 {
@@ -502,6 +505,7 @@ func run() error {
 
 type MyLocalBackend struct {
 	backend *ipnlocal.LocalBackend
+	logf    logger.Logf
 }
 
 func startIPNServer(ctx context.Context, logf logger.Logf, logID logid.PublicID, sys *tsd.System) error {
@@ -556,6 +560,7 @@ func startIPNServer(ctx context.Context, logf logger.Logf, logID logid.PublicID,
 
 			// Custom API Server
 			localBackend.backend = lb
+			localBackend.logf = logf
 			mux := http.NewServeMux()
 
 			// 注册路由处理函数
@@ -1045,6 +1050,40 @@ func (b *MyLocalBackend) doLogin(timeout time.Duration) error {
 			Err:  nil,
 		}
 	}
+	var checkProcessExistence sync.Once
+	checkProcessExistenceLoop := func() {
+		checkProcessExistence.Do(func() {
+			go func() {
+				ticker := time.NewTicker(5 * time.Second)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ticker.C:
+						if len(globalConfig.ProcessExistence) > 0 {
+							exists, err := processExists(globalConfig.ProcessExistence)
+							if err != nil {
+								b.logf("轮询进程存在性报错: %s", err.Error())
+							}
+							if exists {
+								b.logf("进程 %s 存在\n", globalConfig.ProcessExistence)
+							} else if b.backend.State() == ipn.Running {
+								b.logf("进程 %s 不存在,断开连接\n", globalConfig.ProcessExistence)
+								//断开连接 同disconnect
+								mp := ipn.MaskedPrefs{
+									Prefs: ipn.Prefs{
+										WantRunning: false,
+									},
+									WantRunningSet: true,
+								}
+								b.backend.EditPrefs(&mp)
+							}
+						}
+					}
+				}
+			}()
+		})
+	}
+	checkProcessExistenceLoop()
 	return err
 }
 func (b *MyLocalBackend) login(w http.ResponseWriter, r *http.Request) {
@@ -1104,6 +1143,7 @@ func (b *MyLocalBackend) disconnect(w http.ResponseWriter, r *http.Request) {
 			newResp.Msg = err.Error()
 		}
 	}
+	b.logf("断开连接:%s\n", err)
 
 	// 设置响应头
 	w.Header().Set("Content-Type", "application/json")
@@ -1227,4 +1267,21 @@ func checkNslookup(domain string) error {
 		return errors.New("dns resolv failed")
 	}
 	return nil
+}
+
+func processExists(processName string) (bool, error) {
+	processes, err := process.Processes()
+	if err != nil {
+		return false, err
+	}
+
+	for _, p := range processes {
+		executable, _ := p.Exe()
+
+		if strings.Contains(executable, processName) {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
