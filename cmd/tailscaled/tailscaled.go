@@ -908,21 +908,14 @@ type CustomResp struct {
 }
 
 func (b *MyLocalBackend) getIPsHandler(w http.ResponseWriter, r *http.Request) {
-	if loginErr.Code != 0 {
-		// 设置响应头
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		// 序列化 JSON 响应
-		newResp := &CustomResp{
-			Data: map[string]any{},
-			Code: int64(loginErr.Code),
-			Msg:  loginErr.Err.Error(),
+	st := b.backend.State()
+	if st == ipn.Running {
+		loginErr = loginErrWarpper{
+			Code: 0,
+			Err:  nil,
 		}
-		response, _ := json.Marshal(newResp)
-		// 序列化 JSON 响应
-		w.Write(response)
-		return
 	}
+
 	ips := []string{}
 	if b != nil && b.backend != nil {
 		st := b.backend.StatusWithoutPeers()
@@ -938,8 +931,12 @@ func (b *MyLocalBackend) getIPsHandler(w http.ResponseWriter, r *http.Request) {
 		Data: map[string]any{
 			"node_ips": ips,
 		},
-		Code: 0,
-		Msg:  "ok",
+		Code: int64(loginErr.Code),
+	}
+	if loginErr.Err == nil {
+		newResp.Msg = "ok"
+	} else {
+		newResp.Msg = loginErr.Err.Error()
 	}
 	response, _ := json.Marshal(newResp)
 
