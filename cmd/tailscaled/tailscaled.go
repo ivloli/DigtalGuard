@@ -1050,7 +1050,7 @@ func (b *MyLocalBackend) doLogin(timeout time.Duration) error {
 					select {
 					case <-ticker.C:
 						if len(globalConfig.ProcessExistence) > 0 {
-							exists, err := processExists(globalConfig.ProcessExistence)
+							exists, err := b.processExists(globalConfig.ProcessExistence)
 							if err != nil {
 								b.logf("轮询进程存在性报错: %s", err.Error())
 							}
@@ -1260,19 +1260,46 @@ func checkNslookup(domain string) error {
 	return nil
 }
 
-func processExists(processName string) (bool, error) {
-	processes, err := process.Processes()
-	if err != nil {
-		return false, err
-	}
-
-	for _, p := range processes {
-		executable, _ := p.Exe()
-
-		if strings.Contains(executable, processName) {
-			return true, nil
+func (b *MyLocalBackend) processExists(processName string) (bool, error) {
+	switch runtime.GOOS {
+	case "windows":
+		processes, err := process.Processes()
+		if err != nil {
+			return false, err
 		}
-	}
 
+		for _, p := range processes {
+			executable, _ := p.Exe()
+
+			if strings.Contains(executable, processName) {
+				b.logf("检测到进程: %s\n", executable)
+				return true, nil
+			}
+		}
+
+		return false, nil
+	case "darwin":
+		cmd := exec.Command("sh", "-c", "ps -ef | grep -i diguser | grep "+processName)
+
+		// 捕获命令的标准输出
+		output, err := cmd.Output()
+		if err != nil {
+			return false, err
+		}
+
+		// 将输出拆分成行
+		lines := strings.Split(string(output), "\n")
+
+		// 检查每行是否包含，表示进程是否存在
+		for _, line := range lines {
+			// 排除包含 "grep" 的行
+			if strings.Contains(line, processName) && !strings.Contains(line, "grep "+processName) {
+				b.logf("检测到进程: %s\n", line)
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+	b.logf("不支持的系统\n")
 	return false, nil
 }
