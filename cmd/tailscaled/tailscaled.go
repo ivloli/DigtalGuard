@@ -951,6 +951,9 @@ func (b *MyLocalBackend) getIPsHandler(w http.ResponseWriter, r *http.Request) {
 	// 发送 JSON 响应
 	w.Write(response)
 }
+
+var checkProcessExistence sync.Once
+
 func (b *MyLocalBackend) doLogin(timeout time.Duration) error {
 	cerr := checkNslookup(globalConfig.ControlUrl)
 	if cerr != nil {
@@ -1025,7 +1028,6 @@ func (b *MyLocalBackend) doLogin(timeout time.Duration) error {
 			Err:  nil,
 		}
 	}
-	var checkProcessExistence sync.Once
 	checkProcessExistenceLoop := func() {
 		checkProcessExistence.Do(func() {
 			go func() {
