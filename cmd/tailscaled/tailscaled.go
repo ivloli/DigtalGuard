@@ -569,7 +569,7 @@ func startIPNServer(ctx context.Context, logf logger.Logf, logID logid.PublicID,
 			// try first login on start
 			if globalConfig.AutoConnect {
 				logf("start first login...")
-				e := localBackend.doLogin(30 * time.Second)
+				e := localBackend.doLogin(30*time.Second, "")
 				if e != nil {
 					logf("first login with err %s", e.Error())
 				} else {
@@ -917,6 +917,7 @@ func (b *MyLocalBackend) getIPsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ips := []string{}
+	namespace := ""
 	if b != nil && b.backend != nil {
 		st := b.backend.StatusWithoutPeers()
 		for _, v := range st.TailscaleIPs {
@@ -924,12 +925,18 @@ func (b *MyLocalBackend) getIPsHandler(w http.ResponseWriter, r *http.Request) {
 				ips = append(ips, v.String())
 			}
 		}
+		status := b.backend.Status()
+		if status.User != nil {
+			userProfile := status.User[st.Self.UserID]
+			namespace = userProfile.LoginName
+		}
 	}
 
 	// 序列化 JSON 响应
 	newResp := &CustomResp{
 		Data: map[string]any{
-			"node_ips": ips,
+			"node_ips":  ips,
+			"namespace": namespace,
 		},
 		Code: int64(loginErr.Code),
 	}
@@ -954,7 +961,7 @@ func (b *MyLocalBackend) getIPsHandler(w http.ResponseWriter, r *http.Request) {
 
 var checkProcessExistence sync.Once
 
-func (b *MyLocalBackend) doLogin(timeout time.Duration) error {
+func (b *MyLocalBackend) doLogin(timeout time.Duration, authKey string) error {
 	cerr := checkNslookup(globalConfig.ControlUrl)
 	if cerr != nil {
 		loginErr = loginErrWarpper{
@@ -967,8 +974,11 @@ func (b *MyLocalBackend) doLogin(timeout time.Duration) error {
 	if globalConfig.HostSuffix != "" {
 		suffix = globalConfig.HostSuffix
 	}
+	if len(authKey) == 0 {
+		authKey = globalConfig.AuthKey
+	}
 	o := ipn.Options{
-		AuthKey: globalConfig.AuthKey,
+		AuthKey: authKey,
 		UpdatePrefs: &ipn.Prefs{
 			ControlURL:       globalConfig.ControlUrl,
 			WantRunning:      true,
@@ -1064,7 +1074,11 @@ func (b *MyLocalBackend) doLogin(timeout time.Duration) error {
 	return err
 }
 func (b *MyLocalBackend) login(w http.ResponseWriter, r *http.Request) {
-	err := b.doLogin(15 * time.Second)
+	// 获取 GET 请求参数
+	params := r.URL.Query()
+	// 通过参数名获取参数值
+	authKey := params.Get("auth_key")
+	err := b.doLogin(15*time.Second, authKey)
 	// 设置响应头
 	w.Header().Set("Content-Type", "application/json")
 
