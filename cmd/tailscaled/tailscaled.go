@@ -171,6 +171,7 @@ type Config struct {
 	ControlUrl       string   `yaml:"controlUrl"`
 	AuthKey          string   `yaml:"authKey"`
 	DataDir          string   `yaml:"dataDir"`
+	LogDir           string   `yaml:"logDir"`
 	HostSuffix       string   `yaml:"hostSuffix"`
 	AutoConnect      bool     `yaml:"autoConnect"`
 	AdvertiseRoutes  []string `yaml:"advertiseRoutes"`
@@ -260,6 +261,7 @@ func main() {
 		}
 		globalConfig.AutoConnect = config.AutoConnect
 		globalConfig.ProcessExistence = config.ProcessExistence
+		globalConfig.LogDir = config.LogDir
 	}
 	if len(os.Args) > 1 {
 		sub := os.Args[1]
@@ -435,7 +437,7 @@ func run() error {
 	}
 	sys.Set(netMon)
 
-	pol := logpolicy.New(logtail.CollectionNode, netMon)
+	pol := logpolicy.NewWithConfigPath(logtail.CollectionNode, globalConfig.LogDir, "DigitalGuard", netMon)
 	pol.SetVerbosityLevel(args.verbose)
 	logPol = pol
 	defer func() {

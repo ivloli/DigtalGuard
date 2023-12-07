@@ -612,7 +612,7 @@ func NewWithConfigPath(collection, dir, cmdName string, netMon *netmon.Monitor) 
 		logID := newc.PublicID.String()
 		//exe, _ := os.Executable()
 		//if strings.EqualFold(filepath.Base(exe), "DigitalGuard.exe") {
-		diskLogf := filelogger.New("DigitalGuard-service", logID, lw.Logf)
+		diskLogf := filelogger.NewWithDir("DigitalGuard-service", logID, lw.Logf, dir)
 		logOutput = logger.FuncWriter(diskLogf)
 		//}
 	}

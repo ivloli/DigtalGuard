@@ -50,6 +50,34 @@ func New(fileBasePrefix, logID string, logf logger.Logf) logger.Logf {
 	return lfw.Logf
 }
 
+// NewWithDir returns a logf wrapper that appends to local disk log
+// files on Windows, rotating old log files as needed to stay under
+// file count & byte limits.
+func NewWithDir(fileBasePrefix, logID string, logf logger.Logf, dir string) logger.Logf {
+	if runtime.GOOS != "windows" {
+		panic("not yet supported on any platform except Windows")
+	}
+	if logf == nil {
+		panic("nil logf")
+	}
+	if len(dir) == 0 {
+		dir = filepath.Join(os.Getenv("ProgramData"), "DigitalGuard", "Logs")
+	}
+
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		log.Printf("failed to create local log directory; not writing logs to disk: %v", err)
+		return logf
+	}
+	logf("local disk logdir: %v", dir)
+	lfw := &logFileWriter{
+		fileBasePrefix: fileBasePrefix,
+		logID:          logID,
+		dir:            dir,
+		wrappedLogf:    logf,
+	}
+	return lfw.Logf
+}
+
 // logFileWriter is the state for the log writer & rotator.
 type logFileWriter struct {
 	dir            string      // e.g. `C:\Users\FooBarUser\AppData\Local\Tailscale\Logs`
