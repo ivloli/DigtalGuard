@@ -33,6 +33,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-ping/ping"
 	"github.com/shirou/gopsutil/v3/process"
 	"gopkg.in/yaml.v2"
 	"tailscale.com/cmd/tailscaled/childproc"
@@ -150,6 +151,8 @@ var (
 	uninstallSystemDaemon func([]string) error                      // non-nil on some platforms
 	createBIRDClient      func(string) (wgengine.BIRDClient, error) // non-nil on some platforms
 )
+
+var subIPCh chan string = make(chan string, 1)
 
 var subCommands = map[string]*func([]string) error{
 	"install-system-daemon":   &installSystemDaemon,
@@ -968,6 +971,7 @@ func (b *MyLocalBackend) getIPsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 var checkProcessExistence sync.Once
+var checksubnetIP sync.Once
 
 func (b *MyLocalBackend) doLogin(timeout time.Duration) error {
 	cerr := checkNslookup(globalConfig.ControlUrl)
@@ -1079,7 +1083,17 @@ func (b *MyLocalBackend) doLogin(timeout time.Duration) error {
 	return err
 }
 func (b *MyLocalBackend) login(w http.ResponseWriter, r *http.Request) {
+<<<<<<< HEAD
 	err := b.doLogin(15 * time.Second)
+=======
+	// 获取 GET 请求参数
+	params := r.URL.Query()
+	// 通过参数名获取参数值
+	authKey := params.Get("auth_key")
+	subnetIP := params.Get("subnet_ip")
+	subIPCh <- subnetIP
+	err := b.doLogin(15*time.Second, authKey)
+>>>>>>> 771bc28 (添加内网ip 定时扫描功能)
 	// 设置响应头
 	w.Header().Set("Content-Type", "application/json")
 
@@ -1097,6 +1111,31 @@ func (b *MyLocalBackend) login(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		newResp.Code = -1
 		newResp.Msg = err.Error()
+	} else {
+		checksubnetIP.Do(func() {
+			go func(ipch chan string) {
+				var subnetIP string
+				ticker := time.NewTicker(5 * time.Second)
+				for {
+					select {
+					case <-ticker.C:
+						var routeAll bool
+						if len(subnetIP) > 0 {
+							ok, _ := PING(subnetIP)
+							routeAll = !ok
+						} else {
+							routeAll = true
+						}
+						_, msg, res := b.configRouteAllImpl(routeAll)
+						if msg != "No change set" {
+							b.logf("自动修改配置子网路由功能routeAll: status: %s, msg: %s", res, msg)
+						}
+					case param := <-ipch:
+						subnetIP = param
+					}
+				}
+			}(subIPCh)
+		})
 	}
 	// 发送 JSON 响应
 	w.Write(response)
@@ -1213,11 +1252,25 @@ func (b *MyLocalBackend) configRouteAll(w http.ResponseWriter, r *http.Request) 
 		Code: 0,
 		Msg:  "ok",
 	}
+	code, msg, res := b.configRouteAllImpl(routeAll)
+	newResp.Code = code
+	newResp.Data["prefs.routeAll"] = res
+	newResp.Msg = msg
+
+	response, _ := json.Marshal(newResp)
+	// 设置响应头
+	w.Header().Set("Content-Type", "application/json")
+
+	w.WriteHeader(http.StatusOK)
+	// 发送 JSON 响应
+	w.Write(response)
+	b.logf("配置子网路由功能routeAll: status: %s, msg: %s", res, msg)
+}
+
+func (b *MyLocalBackend) configRouteAllImpl(routeAll bool) (int64, string, bool) {
 	prefs := b.backend.Prefs()
 	if prefs.RouteAll() == routeAll {
-		newResp.Data["prefs.routeAll"] = prefs.RouteAll()
-		newResp.Msg = "No change set"
-		newResp.Code = 0
+		return 0, "No change set", prefs.RouteAll()
 	} else {
 		mp := ipn.MaskedPrefs{
 			Prefs: ipn.Prefs{
@@ -1227,23 +1280,11 @@ func (b *MyLocalBackend) configRouteAll(w http.ResponseWriter, r *http.Request) 
 		}
 		newPrefs, err := b.backend.EditPrefs(&mp)
 		if err != nil {
-			newResp.Code = -1
-			newResp.Data["prefs.routeAll"] = prefs.RouteAll()
-			newResp.Msg = err.Error()
+			return -1, err.Error(), prefs.RouteAll()
 		} else {
-			newResp.Code = 0
-			newResp.Data["prefs.routeAll"] = newPrefs.RouteAll()
-			newResp.Msg = "ok"
+			return 0, "ok", newPrefs.RouteAll()
 		}
 	}
-
-	response, _ := json.Marshal(newResp)
-	// 设置响应头
-	w.Header().Set("Content-Type", "application/json")
-
-	w.WriteHeader(http.StatusOK)
-	// 发送 JSON 响应
-	w.Write(response)
 }
 
 func checkNslookup(domain string) error {
@@ -1304,4 +1345,29 @@ func (b *MyLocalBackend) processExists(processName string) (bool, error) {
 	}
 	b.logf("不支持的系统\n")
 	return false, nil
+}
+
+func PING(ipAddr string) (bool, error) {
+	pinger, err := ping.NewPinger(ipAddr)
+	if err != nil {
+		return false, err
+	}
+	// 设置ping包数量
+	pinger.Count = 5
+	// 设置超时时间
+	pinger.Timeout = time.Second * 10
+	// 设置成特权模式
+	//pinger.SetPrivileged(true)
+	// 运行pinger
+	err = pinger.Run()
+	if err != nil {
+		return false, err
+	}
+	stats := pinger.Statistics()
+	// 如果回包大于等于1则判为ping通
+	if stats.PacketsRecv >= 1 {
+		return true, nil
+	} else {
+		return false, nil
+	}
 }
