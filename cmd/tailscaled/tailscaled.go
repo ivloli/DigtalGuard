@@ -1083,17 +1083,12 @@ func (b *MyLocalBackend) doLogin(timeout time.Duration) error {
 	return err
 }
 func (b *MyLocalBackend) login(w http.ResponseWriter, r *http.Request) {
-<<<<<<< HEAD
-	err := b.doLogin(15 * time.Second)
-=======
 	// 获取 GET 请求参数
 	params := r.URL.Query()
 	// 通过参数名获取参数值
-	authKey := params.Get("auth_key")
 	subnetIP := params.Get("subnet_ip")
 	subIPCh <- subnetIP
-	err := b.doLogin(15*time.Second, authKey)
->>>>>>> 771bc28 (添加内网ip 定时扫描功能)
+	err := b.doLogin(15 * time.Second)
 	// 设置响应头
 	w.Header().Set("Content-Type", "application/json")
 
